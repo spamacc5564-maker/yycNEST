@@ -61,6 +61,13 @@ function textOf(data: any): string {
     .join("\n")
 }
 
+// Our agents mostly reformat and check data, so keep the model's "thinking" as low as possible for speed.
+function thinkingFor(model: string): Record<string, unknown> | undefined {
+  if (model.startsWith("gemini-3")) return { thinkingLevel: "minimal" }
+  if (model.startsWith("gemini-2.5")) return { thinkingBudget: 0 }
+  return undefined
+}
+
 async function callGemini(opts: {
   system: string
   contents: any[]
@@ -71,7 +78,9 @@ async function callGemini(opts: {
   const models = Array.from(new Set([PRIMARY_MODEL, FALLBACK_MODEL]))
   let lastErr = "Gemini call failed"
   for (const model of models) {
+    let withThinking = true
     for (let attempt = 0; attempt < 3; attempt++) {
+      const thinking = withThinking ? thinkingFor(model) : undefined
       const res = await fetch(GEMINI_BASE + "/" + model + ":generateContent", {
         method: "POST",
         signal: AbortSignal.timeout(20000),
@@ -85,6 +94,7 @@ async function callGemini(opts: {
           ...(opts.tools ? { tools: opts.tools } : {}),
           generationConfig: {
             maxOutputTokens: opts.maxTokens ?? 4096,
+            ...(thinking ? { thinkingConfig: thinking } : {}),
             ...(opts.json && !opts.tools ? { responseMimeType: "application/json" } : {}),
           },
         }),
@@ -92,6 +102,10 @@ async function callGemini(opts: {
       if (res.ok) return res.json()
       const body = await res.text()
       lastErr = "Gemini " + res.status + " (" + model + "): " + body.slice(0, 300)
+      if (res.status === 400 && thinking && /thinking/i.test(body)) {
+        withThinking = false // this model rejected the thinking setting, retry without it
+        continue
+      }
       if (res.status === 404) break // model name not available, try the next model
       if (res.status === 429 || res.status >= 500) {
         await sleep(3000 * (attempt + 1))
