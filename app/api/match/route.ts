@@ -74,6 +74,7 @@ async function callGemini(opts: {
     for (let attempt = 0; attempt < 3; attempt++) {
       const res = await fetch(GEMINI_BASE + "/" + model + ":generateContent", {
         method: "POST",
+        signal: AbortSignal.timeout(20000),
         headers: {
           "content-type": "application/json",
           "x-goog-api-key": process.env.GEMINI_API_KEY || "",
@@ -423,6 +424,7 @@ export async function POST(req: Request) {
 
 // Temporary browser-test route, protected by INGEST_SECRET. Remove once the UI is connected (step 4).
 // Example: /api/match?secret=...&q=moving with a husky, I drive&dog=1&commute=drive
+// Speed test: /api/match?secret=...&ping=1
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url)
@@ -431,6 +433,15 @@ export async function GET(req: Request) {
     }
     const m = missingEnv()
     if (m) return NextResponse.json({ ok: false, error: m }, { status: 500 })
+    if (url.searchParams.get("ping") === "1") {
+      const t = Date.now()
+      const data = await callGemini({
+        system: "Reply with the single word ok.",
+        contents: userMsg("ping"),
+        maxTokens: 512,
+      })
+      return NextResponse.json({ ok: true, ms: Date.now() - t, model: PRIMARY_MODEL, reply: textOf(data) })
+    }
     const commute = url.searchParams.get("commute") as MatchInput["commute"] | null
     const dog = url.searchParams.get("dog")
     return NextResponse.json(
