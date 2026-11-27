@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { FolderClock, LogOut, Plus } from "lucide-react"
@@ -15,16 +16,51 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
-import { CURRENT_USER } from "@/lib/mock-data"
+import { createClient } from "@/lib/supabase/client"
 
 const LINKS = [
   { href: "/app/new", label: "New match", icon: Plus },
   { href: "/app/matches", label: "My matches", icon: FolderClock },
 ]
 
+interface NavUser {
+  name: string
+  email: string
+  initials: string
+}
+
+function toNavUser(u: { email?: string; user_metadata?: Record<string, unknown> }): NavUser {
+  const email = u.email ?? ""
+  const meta = u.user_metadata ?? {}
+  const name = (meta.full_name as string) || (meta.name as string) || email.split("@")[0] || "Account"
+  const initials =
+    name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((p) => p[0]?.toUpperCase())
+      .join("") || "?"
+  return { name, email, initials }
+}
+
 export function AppNav() {
   const pathname = usePathname()
   const router = useRouter()
+  const [user, setUser] = useState<NavUser | null>(null)
+
+  useEffect(() => {
+    createClient()
+      .auth.getUser()
+      .then(({ data }) => {
+        if (data.user) setUser(toNavUser(data.user))
+      })
+  }, [])
+
+  async function logOut() {
+    await createClient().auth.signOut()
+    router.push("/")
+    router.refresh()
+  }
 
   return (
     <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur">
@@ -54,14 +90,14 @@ export function AppNav() {
               aria-label="Open user menu"
             >
               <Avatar>
-                <AvatarFallback className="bg-primary text-primary-foreground">{CURRENT_USER.initials}</AvatarFallback>
+                <AvatarFallback className="bg-primary text-primary-foreground">{user?.initials ?? "…"}</AvatarFallback>
               </Avatar>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-60">
               <DropdownMenuGroup>
                 <DropdownMenuLabel>
-                  <p className="font-medium text-foreground">{CURRENT_USER.name}</p>
-                  <p className="truncate text-xs font-normal">{CURRENT_USER.email}</p>
+                  <p className="font-medium text-foreground">{user?.name ?? "Loading…"}</p>
+                  <p className="truncate text-xs font-normal">{user?.email}</p>
                 </DropdownMenuLabel>
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
@@ -70,7 +106,7 @@ export function AppNav() {
                   <FolderClock />
                   My matches
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => router.push("/")}>
+                <DropdownMenuItem onClick={logOut}>
                   <LogOut />
                   Log out
                 </DropdownMenuItem>
